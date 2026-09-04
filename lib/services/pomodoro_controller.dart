@@ -60,8 +60,11 @@ class PomodoroController extends ChangeNotifier {
   }
 
   void changeDuration(int minutes) {
-    if (durationLocked || minutes == sessionMinutes) return;
-    mode = 'Pomodoro';
+    if (durationLocked ||
+        mode != 'Pausa personalizada' ||
+        minutes == sessionMinutes) {
+      return;
+    }
     sessionMinutes = minutes;
     remainingSeconds = minutes * 60;
     notifyListeners();

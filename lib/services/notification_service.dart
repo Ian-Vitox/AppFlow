@@ -65,6 +65,8 @@ class NotificationService {
         return 'Sua pausa curta acabou. Vamos voltar aos estudos?';
       case 'Pausa longa':
         return 'Sua pausa longa acabou. Hora de retomar o foco!';
+      case 'Pausa personalizada':
+        return 'Sua pausa personalizada acabou. Vamos voltar aos estudos?';
       default:
         return 'Seu tempo de foco acabou. Excelente trabalho!';
     }

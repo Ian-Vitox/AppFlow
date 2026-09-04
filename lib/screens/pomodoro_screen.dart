@@ -66,6 +66,10 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
       _showDurationLockedMessage();
       return;
     }
+    if (_controller.mode != 'Pausa personalizada') {
+      _showFixedDurationMessage();
+      return;
+    }
     const size = Size.square(280);
     _draggingKnob = (position - _knobPosition(size)).distance <= 30;
     if (_draggingKnob) _setAdjustingDuration(true);
@@ -96,6 +100,18 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
       );
   }
 
+  void _showFixedDurationMessage() {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Selecione Pausa personalizada para escolher outro tempo.',
+          ),
+        ),
+      );
+  }
+
   void _durationPointerEnd() {
     _draggingKnob = false;
     _setAdjustingDuration(false);
@@ -109,7 +125,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     const sweepAngle = math.pi * 1.68;
     if (angle < startAngle) angle += math.pi * 2;
     final ratio = ((angle - startAngle) / sweepAngle).clamp(0.0, 1.0);
-    final minutes = 5 + (ratio * 11).round() * 5;
+    final minutes = 1 + (ratio * 59).round();
     _controller.changeDuration(minutes);
   }
 
@@ -415,7 +431,6 @@ class _TimerPanel extends StatelessWidget {
           const SizedBox(height: 9),
           LayoutBuilder(
             builder: (_, constraints) {
-              final narrow = constraints.maxWidth < 390;
               final modes = [
                 _ModeButton(
                   title: 'Pomodoro',
@@ -441,8 +456,18 @@ class _TimerPanel extends StatelessWidget {
                   selected: mode == 'Pausa longa',
                   onTap: () => onModeSelected('Pausa longa', 15),
                 ),
+                _ModeButton(
+                  title: 'Pausa personalizada',
+                  minutes: mode == 'Pausa personalizada'
+                      ? int.parse(clock.split(':').first)
+                      : 10,
+                  icon: Icons.tune_rounded,
+                  color: const Color(0xFF2563EB),
+                  selected: mode == 'Pausa personalizada',
+                  onTap: () => onModeSelected('Pausa personalizada', 10),
+                ),
               ];
-              if (narrow) {
+              if (constraints.maxWidth < 330) {
                 return Column(
                   children: modes
                       .map(
@@ -457,13 +482,13 @@ class _TimerPanel extends StatelessWidget {
                       .toList(),
                 );
               }
-              return Row(
-                children: [
-                  for (var index = 0; index < modes.length; index++) ...[
-                    Expanded(child: modes[index]),
-                    if (index < modes.length - 1) const SizedBox(width: 9),
-                  ],
-                ],
+              final itemWidth = (constraints.maxWidth - 9) / 2;
+              return Wrap(
+                spacing: 9,
+                runSpacing: 9,
+                children: modes
+                    .map((button) => SizedBox(width: itemWidth, child: button))
+                    .toList(),
               );
             },
           ),
