@@ -15,13 +15,20 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor:const Color(0xFFF8F9FC),
-      body: Padding(
-        padding: EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      backgroundColor: const Color(0xFFF8F9FC),
+body: SafeArea(
+  child: SingleChildScrollView(
+    child: Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxWidth: 450,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             Center(
               child: Container(
                 width: 90,
@@ -144,14 +151,30 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 onPressed: () {
-                  String email = emailController.text;
+                  String email = emailController.text.trim();
                   String senha = senhaController.text;
-                  if (email.isEmpty || senha.isEmpty) {
+                  if (email.isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Preencha todos os campos')),
+                      const SnackBar(content: Text('informe seu e-mail')),
+                    );
+                  } else if (!email.contains('@') || !email.contains('.')) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('E-mail inválido')),
+                    );
+                  } else if (senha.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('informe sua senha')),
+                    );
+                  } else if (senha.length < 8) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'A senha deve conter no minimo 8 caracteres',
+                        ),
+                      ),
                     );
                   } else {
-                    print('Login permitido');
+                    print('Login realizado com sucesso!');
                   }
                 },
                 // Ação ao pressionar o botão de login
@@ -161,9 +184,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
             ),
-          ],
+                    ],
         ),
       ),
+    ),
+  ),
+      ),
+    ),
     );
   }
 }
