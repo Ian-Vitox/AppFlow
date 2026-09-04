@@ -34,23 +34,23 @@ class _LoginScreenState extends State<LoginScreen> {
                         width: 90,
                         height: 90,
                         decoration: BoxDecoration(
-                          color: Color(0xFFEEEAFE),
+                          color: Color(0xFFEAF2FF),
                           borderRadius: BorderRadius.circular(24),
                         ),
                         child: Icon(
                           Icons.timer_outlined,
                           size: 50,
-                          color: Color(0xFF5B3DF5),
+                          color: Color(0xFF2563EB),
                         ),
                       ),
                     ),
                     Center(
                       child: Text(
-                        'StudyFlow',
+                        'Estuda+',
                         style: TextStyle(
                           fontSize: 32,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFF5B3DF5),
+                          color: Color(0xFF2563EB),
                         ),
                       ),
                     ),
@@ -155,7 +155,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       height: 55,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Color(0xFF5B3DF5),
+                          backgroundColor: Color(0xFF2563EB),
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),

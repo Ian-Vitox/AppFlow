@@ -2,7 +2,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-const primary = Color(0xFF6547ED);
+import 'pomodoro_screen.dart';
+
+const primary = Color(0xFF2563EB);
 const ink = Color(0xFF171627);
 const muted = Color(0xFF777588);
 
@@ -88,7 +90,7 @@ class _Header extends StatelessWidget {
               width: 42,
               height: 42,
               decoration: BoxDecoration(
-                color: const Color(0xFFF0ECFF),
+                color: const Color(0xFFEAF2FF),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Icon(
@@ -103,11 +105,11 @@ class _Header extends StatelessWidget {
                 style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
                 children: [
                   TextSpan(
-                    text: 'Study',
+                    text: 'Estuda',
                     style: TextStyle(color: ink),
                   ),
                   TextSpan(
-                    text: 'Flow',
+                    text: '+',
                     style: TextStyle(color: primary),
                   ),
                 ],
@@ -428,8 +430,8 @@ class _WeeklyChart extends StatelessWidget {
                                       begin: Alignment.topCenter,
                                       end: Alignment.bottomCenter,
                                       colors: [
-                                        Color(0xFF765CF2),
-                                        Color(0xFF4F2BE1),
+                                        Color(0xFF3B82F6),
+                                        Color(0xFF1D4ED8),
                                       ],
                                     ),
                                     borderRadius: BorderRadius.vertical(
@@ -601,8 +603,8 @@ class _RecentSessions extends StatelessWidget {
       'Redes',
       '1h 20m',
       Icons.hub_outlined,
-      Color(0xFF6847E8),
-      Color(0xFFF0EBFF),
+      Color(0xFF2563EB),
+      Color(0xFFEAF2FF),
     ),
     (
       'Banco de Dados',
@@ -735,7 +737,7 @@ class _BottomNav extends StatelessWidget {
       data: NavigationBarThemeData(
         height: 70,
         backgroundColor: Colors.white,
-        indicatorColor: const Color(0xFFEDE8FF),
+        indicatorColor: const Color(0xFFE5EFFF),
         labelTextStyle: WidgetStateProperty.resolveWith(
           (states) => TextStyle(
             fontSize: 10,
@@ -748,7 +750,14 @@ class _BottomNav extends StatelessWidget {
       ),
       child: NavigationBar(
         selectedIndex: 0,
-        onDestinationSelected: (_) {},
+        onDestinationSelected: (index) {
+          if (index == 1) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const PomodoroScreen()),
+            );
+          }
+        },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
@@ -787,7 +796,7 @@ class _CircleIcon extends StatelessWidget {
       width: 45,
       height: 45,
       decoration: const BoxDecoration(
-        color: Color(0xFFF1EDFF),
+        color: Color(0xFFEAF2FF),
         shape: BoxShape.circle,
       ),
       child: Icon(icon, color: primary, size: 25),
