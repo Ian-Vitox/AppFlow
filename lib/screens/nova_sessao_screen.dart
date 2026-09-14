@@ -189,7 +189,8 @@ class _NovaSessaoScreenState extends State<NovaSessaoScreen> {
                               maxLength: 1000,
                               maxLines: 6,
                               decoration: const InputDecoration(
-                                hintText: 'Descreva o que você estudou, principais tópicos, dúvidas ou aprendizados...',
+                                hintText:
+                                    'Descreva o que você estudou, principais tópicos, dúvidas ou aprendizados...',
                                 alignLabelWithHint: true,
                               ),
                             ),
@@ -347,8 +348,9 @@ class _NovaSessaoScreenState extends State<NovaSessaoScreen> {
 
   void _showError(String message) {
     if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
       setState(() => _saving = false);
     }
   }
@@ -393,7 +395,9 @@ class _SubjectField extends StatelessWidget {
         );
       }
       return DropdownButtonFormField<String>(
-        initialValue: value,
+        // Compatibilidade com o Flutter 3.32 usado pelo FlutLab.
+        // ignore: deprecated_member_use
+        value: value,
         isExpanded: true,
         decoration: const InputDecoration(
           prefixIcon: Icon(Icons.menu_book_outlined),

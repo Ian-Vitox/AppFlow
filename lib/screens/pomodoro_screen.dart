@@ -408,7 +408,9 @@ class _TimerPanel extends StatelessWidget {
         children: [
           DropdownButtonFormField<String>(
             key: ValueKey('${subjects.join('|')}::$subject'),
-            initialValue: subjects.contains(subject) ? subject : null,
+            // Compatibilidade com o Flutter 3.32 usado pelo FlutLab.
+            // ignore: deprecated_member_use
+            value: subjects.contains(subject) ? subject : null,
             hint: Text(
               loadingSubjects
                   ? 'Carregando matérias...'
