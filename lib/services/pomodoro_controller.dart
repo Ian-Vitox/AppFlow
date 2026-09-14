@@ -16,11 +16,21 @@ class PomodoroController extends ChangeNotifier {
   bool running = false;
   bool durationLocked = false;
   String mode = 'Pomodoro';
-  String subject = 'Desenvolvimento Web';
+  String subject = '';
+  String? completedMessage;
+  final List<CompletedStudySession> completedSessions = [];
+
+  int get focusMinutesToday =>
+      completedSessions.fold(0, (total, session) => total + session.minutes);
+
+  int get pomodorosToday => completedSessions.length;
+
+  bool get subjectLocked => durationLocked && remainingSeconds > 0;
 
   void start() {
     if (running || remainingSeconds == 0) return;
     running = true;
+    completedMessage = null;
     durationLocked = true;
     _endAt = DateTime.now().add(Duration(seconds: remainingSeconds));
     NotificationService.instance.scheduleTimerEnd(_endAt!, mode);
@@ -42,6 +52,7 @@ class PomodoroController extends ChangeNotifier {
     _endAt = null;
     running = false;
     durationLocked = false;
+    completedMessage = null;
     remainingSeconds = sessionMinutes * 60;
     NotificationService.instance.cancelTimerEnd();
     notifyListeners();
@@ -61,7 +72,8 @@ class PomodoroController extends ChangeNotifier {
 
   void changeDuration(int minutes) {
     if (durationLocked ||
-        mode != 'Pausa personalizada' ||
+        mode == 'Pausa curta' ||
+        mode == 'Pausa longa' ||
         minutes == sessionMinutes) {
       return;
     }
@@ -71,6 +83,7 @@ class PomodoroController extends ChangeNotifier {
   }
 
   void changeSubject(String value) {
+    if (subjectLocked) return;
     subject = value;
     notifyListeners();
   }
@@ -91,6 +104,32 @@ class PomodoroController extends ChangeNotifier {
       _ticker?.cancel();
       _endAt = null;
       running = false;
+      durationLocked = false;
+      completedMessage = mode == 'Pomodoro'
+          ? 'Ciclo de Pomodoro concluído!'
+          : '$mode concluída!';
+      if (mode == 'Pomodoro') {
+        completedSessions.insert(
+          0,
+          CompletedStudySession(
+            subject: subject,
+            minutes: sessionMinutes,
+            finishedAt: DateTime.now(),
+          ),
+        );
+      }
     }
   }
+}
+
+class CompletedStudySession {
+  const CompletedStudySession({
+    required this.subject,
+    required this.minutes,
+    required this.finishedAt,
+  });
+
+  final String subject;
+  final int minutes;
+  final DateTime finishedAt;
 }

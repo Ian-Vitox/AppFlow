@@ -2,7 +2,13 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../services/database_service.dart';
 import '../services/pomodoro_controller.dart';
+import '../widgets/app_bottom_navigation.dart';
+import '../widgets/app_logo.dart';
+import 'materias_screen.dart';
+import 'perfil_screen.dart';
+import 'sessoes_screen.dart';
 
 const _blue = Color(0xFF2563EB);
 const _ink = Color(0xFF171627);
@@ -20,27 +26,109 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
   final _controller = PomodoroController.instance;
   bool _adjustingDuration = false;
   bool _draggingKnob = false;
-
-  static const _subjects = [
-    'Desenvolvimento Web',
-    'Banco de Dados',
-    'Redes de Computadores',
-  ];
+  List<String> _subjects = [];
+  List<SubjectRecord> _subjectRecords = [];
+  List<StudySessionRecord> _todaySessions = [];
+  bool _loadingSubjects = true;
+  late int _handledCompletions;
+  final _completionNotes = TextEditingController();
+  CompletedStudySession? _pendingCompletion;
+  bool _showCompletionNotes = false;
+  bool _savingCompletion = false;
 
   @override
   void initState() {
     super.initState();
+    _handledCompletions = _controller.completedSessions.length;
     _controller.addListener(_refresh);
+    _loadSubjects();
   }
 
   @override
   void dispose() {
     _controller.removeListener(_refresh);
+    _completionNotes.dispose();
     super.dispose();
   }
 
   void _refresh() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    if (_controller.completedSessions.length > _handledCompletions) {
+      _handledCompletions = _controller.completedSessions.length;
+      _pendingCompletion = _controller.completedSessions.first;
+      _showCompletionNotes = false;
+      _completionNotes.clear();
+    }
+    setState(() {});
+  }
+
+  Future<void> _loadSubjects() async {
+    if (mounted) setState(() => _loadingSubjects = true);
+    try {
+      final values = await Future.wait([
+        DatabaseService.instance.fetchSubjects(),
+        DatabaseService.instance.fetchSessions(),
+      ]);
+      final records = values[0] as List<SubjectRecord>;
+      final sessions = values[1] as List<StudySessionRecord>;
+      if (!mounted) return;
+      final names = records.map((item) => item.name).toList();
+      final now = DateTime.now();
+      final start = DateTime(now.year, now.month, now.day);
+      if (!_controller.subjectLocked &&
+          _controller.subject.isNotEmpty &&
+          !names.contains(_controller.subject)) {
+        _controller.changeSubject('');
+      }
+      setState(() {
+        _subjects = names;
+        _subjectRecords = records;
+        _todaySessions = sessions
+            .where((item) => !item.startedAt.isBefore(start))
+            .toList();
+        _loadingSubjects = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingSubjects = false);
+    }
+  }
+
+  Future<void> _persistCompletion({required String summary}) async {
+    final session = _pendingCompletion;
+    if (session == null || _savingCompletion) return;
+    final subject = _subjectRecords
+        .where((item) => item.name == session.subject)
+        .firstOrNull;
+    if (subject == null) return;
+    setState(() => _savingCompletion = true);
+    try {
+      await DatabaseService.instance.createPomodoroSession(
+        subjectId: subject.id,
+        finishedAt: session.finishedAt,
+        durationMinutes: session.minutes,
+        summary: summary,
+      );
+      await _loadSubjects();
+      if (mounted) {
+        setState(() {
+          _pendingCompletion = null;
+          _showCompletionNotes = false;
+          _savingCompletion = false;
+          _completionNotes.clear();
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _savingCompletion = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'O ciclo terminou, mas não foi possível salvar a sessão.',
+            ),
+          ),
+        );
+      }
+    }
   }
 
   void _setAdjustingDuration(bool value) {
@@ -66,7 +154,8 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
       _showDurationLockedMessage();
       return;
     }
-    if (_controller.mode != 'Pausa personalizada') {
+    if (_controller.mode == 'Pausa curta' ||
+        _controller.mode == 'Pausa longa') {
       _showFixedDurationMessage();
       return;
     }
@@ -105,11 +194,21 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
       ..hideCurrentSnackBar()
       ..showSnackBar(
         const SnackBar(
-          content: Text(
-            'Selecione Pausa personalizada para escolher outro tempo.',
-          ),
+          content: Text('A pausa curta e a pausa longa possuem tempo fixo.'),
         ),
       );
+  }
+
+  void _startPomodoro() {
+    if (_controller.subject.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cadastre e selecione uma matéria antes de iniciar.'),
+        ),
+      );
+      return;
+    }
+    _controller.start();
   }
 
   void _durationPointerEnd() {
@@ -146,7 +245,9 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     final progress = _controller.remainingSeconds / (60 * 60);
     return Scaffold(
       backgroundColor: _background,
-      bottomNavigationBar: const _PomodoroNavigation(),
+      bottomNavigationBar: _PomodoroNavigation(
+        onSubjectsChanged: _loadSubjects,
+      ),
       body: SafeArea(
         bottom: false,
         child: SingleChildScrollView(
@@ -164,14 +265,20 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
                   _TimerPanel(
                     subject: _controller.subject,
                     subjects: _subjects,
-                    onSubjectChanged: (value) {
-                      if (value != null) _controller.changeSubject(value);
-                    },
+                    loadingSubjects: _loadingSubjects,
+                    onSubjectChanged:
+                        _controller.subjectLocked || _subjects.isEmpty
+                        ? null
+                        : (value) {
+                            if (value != null) {
+                              _controller.changeSubject(value);
+                            }
+                          },
                     clock: _clock,
                     mode: _controller.mode,
                     progress: progress,
                     running: _controller.running,
-                    onStart: _controller.start,
+                    onStart: _startPomodoro,
                     onPause: _controller.pause,
                     onReset: _controller.reset,
                     onModeSelected: _selectMode,
@@ -179,10 +286,40 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
                     onPointerMove: _durationPointerMove,
                     onPointerEnd: _durationPointerEnd,
                   ),
+                  if (_controller.completedMessage != null) ...[
+                    const SizedBox(height: 12),
+                    _CompletionBanner(message: _controller.completedMessage!),
+                  ],
+                  if (_pendingCompletion != null) ...[
+                    const SizedBox(height: 12),
+                    _CompletionNotesCard(
+                      controller: _completionNotes,
+                      showField: _showCompletionNotes,
+                      saving: _savingCompletion,
+                      onYes: () => setState(() => _showCompletionNotes = true),
+                      onNo: () => _persistCompletion(summary: ''),
+                      onSave: () =>
+                          _persistCompletion(summary: _completionNotes.text),
+                    ),
+                  ],
                   const SizedBox(height: 18),
-                  const _TodaySessions(),
+                  _TodaySessions(
+                    sessions: _todaySessions,
+                    focusMinutes: _todaySessions.fold(
+                      0,
+                      (total, item) => total + item.seconds ~/ 60,
+                    ),
+                  ),
                   const SizedBox(height: 18),
-                  const _ProductivitySummary(),
+                  _ProductivitySummary(
+                    focusMinutes: _todaySessions.fold(
+                      0,
+                      (total, item) => total + item.seconds ~/ 60,
+                    ),
+                    pomodoros: _todaySessions
+                        .where((item) => item.source == 'pomodoro')
+                        .length,
+                  ),
                 ],
               ),
             ),
@@ -225,23 +362,14 @@ class _StudyLogo extends StatelessWidget {
   const _StudyLogo();
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 42,
-      height: 42,
-      decoration: BoxDecoration(
-        color: const Color(0xFFEAF2FF),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: const Icon(Icons.menu_book_rounded, color: _blue, size: 27),
-    );
-  }
+  Widget build(BuildContext context) => const AppLogo(size: 42);
 }
 
 class _TimerPanel extends StatelessWidget {
   const _TimerPanel({
     required this.subject,
     required this.subjects,
+    required this.loadingSubjects,
     required this.onSubjectChanged,
     required this.clock,
     required this.mode,
@@ -258,7 +386,8 @@ class _TimerPanel extends StatelessWidget {
 
   final String subject;
   final List<String> subjects;
-  final ValueChanged<String?> onSubjectChanged;
+  final bool loadingSubjects;
+  final ValueChanged<String?>? onSubjectChanged;
   final String clock;
   final String mode;
   final double progress;
@@ -278,7 +407,15 @@ class _TimerPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           DropdownButtonFormField<String>(
-            initialValue: subject,
+            key: ValueKey('${subjects.join('|')}::$subject'),
+            initialValue: subjects.contains(subject) ? subject : null,
+            hint: Text(
+              loadingSubjects
+                  ? 'Carregando matérias...'
+                  : subjects.isEmpty
+                  ? 'Cadastre uma matéria'
+                  : 'Selecione uma matéria',
+            ),
             isExpanded: true,
             icon: const Icon(Icons.keyboard_arrow_down_rounded),
             decoration: InputDecoration(
@@ -380,12 +517,13 @@ class _TimerPanel extends StatelessWidget {
                 _ActionButton(
                   icon: Icons.play_arrow_rounded,
                   label: 'Iniciar',
-                  primary: true,
+                  primary: !running,
                   onPressed: onStart,
                 ),
                 _ActionButton(
                   icon: Icons.pause_rounded,
                   label: 'Pausar',
+                  primary: running,
                   onPressed: onPause,
                 ),
                 _ActionButton(
@@ -597,14 +735,132 @@ class _ModeButton extends StatelessWidget {
   }
 }
 
+class _CompletionBanner extends StatelessWidget {
+  const _CompletionBanner({required this.message});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAFBF1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF9BE2B9)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.check_circle_rounded, color: Color(0xFF169B55)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: Color(0xFF126B40),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CompletionNotesCard extends StatelessWidget {
+  const _CompletionNotesCard({
+    required this.controller,
+    required this.showField,
+    required this.saving,
+    required this.onYes,
+    required this.onNo,
+    required this.onSave,
+  });
+
+  final TextEditingController controller;
+  final bool showField;
+  final bool saving;
+  final VoidCallback onYes;
+  final VoidCallback onNo;
+  final VoidCallback onSave;
+
+  @override
+  Widget build(BuildContext context) => _Panel(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Row(
+          children: [
+            Icon(Icons.edit_note_rounded, color: _blue, size: 26),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Deseja adicionar uma anotação sobre este Pomodoro?',
+                style: TextStyle(
+                  color: _ink,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (showField) ...[
+          const SizedBox(height: 14),
+          TextField(
+            controller: controller,
+            maxLength: 1000,
+            maxLines: 5,
+            autofocus: true,
+            decoration: const InputDecoration(
+              hintText: 'Escreva um resumo, tópicos estudados ou dúvidas...',
+              alignLabelWithHint: true,
+            ),
+          ),
+          const SizedBox(height: 8),
+          FilledButton.icon(
+            onPressed: saving ? null : onSave,
+            icon: saving
+                ? const SizedBox.square(
+                    dimension: 17,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.save_outlined),
+            label: Text(saving ? 'Salvando...' : 'Salvar anotação'),
+          ),
+        ] else ...[
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: saving ? null : onNo,
+                  child: const Text('Não, apenas salvar'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton(
+                  onPressed: saving ? null : onYes,
+                  child: const Text('Sim, anotar'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    ),
+  );
+}
+
 class _TodaySessions extends StatelessWidget {
-  const _TodaySessions();
-  static const sessions = [
-    ('Desenvolvimento Web', '09:15'),
-    ('Banco de Dados', '11:05'),
-    ('Redes de Computadores', '13:20'),
-    ('Desenvolvimento Web', '15:30'),
-  ];
+  const _TodaySessions({required this.sessions, required this.focusMinutes});
+  final List<StudySessionRecord> sessions;
+  final int focusMinutes;
 
   @override
   Widget build(BuildContext context) {
@@ -623,7 +879,13 @@ class _TodaySessions extends StatelessWidget {
                   ),
                 ),
               ),
-              TextButton(onPressed: () {}, child: const Text('Ver todas')),
+              TextButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SessoesScreen()),
+                ),
+                child: const Text('Ver todas'),
+              ),
             ],
           ),
           ...sessions.map(
@@ -631,19 +893,16 @@ class _TodaySessions extends StatelessWidget {
               margin: const EdgeInsets.only(bottom: 5),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               decoration: BoxDecoration(
-                border: Border.all(color: const Color(0xFFEDECF1)),
+                color: const Color(0xFFF5FFF8),
+                border: Border.all(color: const Color(0xFFB9EACD)),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Row(
                 children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFEAFBF1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
+                  const CircleAvatar(
+                    radius: 17,
+                    backgroundColor: Color(0xFFEAFBF1),
+                    child: Icon(
                       Icons.check_rounded,
                       color: Color(0xFF20AF67),
                       size: 20,
@@ -655,18 +914,18 @@ class _TodaySessions extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          session.$1,
+                          session.subject,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: _ink,
                             fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
-                        const Text(
-                          'Pomodoro',
-                          style: TextStyle(color: _muted, fontSize: 10),
+                        Text(
+                          '${session.source == 'pomodoro' ? 'Pomodoro' : 'Sessão manual'} • ${session.seconds ~/ 60} min',
+                          style: const TextStyle(color: _muted, fontSize: 10),
                         ),
                       ],
                     ),
@@ -674,13 +933,21 @@ class _TodaySessions extends StatelessWidget {
                   const Icon(Icons.schedule_rounded, color: _muted, size: 17),
                   const SizedBox(width: 5),
                   Text(
-                    session.$2,
+                    _clockTime(session.startedAt),
                     style: const TextStyle(color: _muted, fontSize: 11),
                   ),
                 ],
               ),
             ),
           ),
+          if (sessions.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 22),
+              child: Text(
+                'Nenhuma sessão concluída hoje.',
+                style: TextStyle(color: _muted),
+              ),
+            ),
           Container(
             margin: const EdgeInsets.only(top: 5),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
@@ -688,19 +955,19 @@ class _TodaySessions extends StatelessWidget {
               color: const Color(0xFFF3F7FF),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Row(
+            child: Row(
               children: [
-                Icon(Icons.timelapse_rounded, color: _blue, size: 21),
-                SizedBox(width: 9),
-                Expanded(
+                const Icon(Icons.timelapse_rounded, color: _blue, size: 21),
+                const SizedBox(width: 9),
+                const Expanded(
                   child: Text(
                     'Total de foco',
                     style: TextStyle(color: _ink, fontSize: 12),
                   ),
                 ),
                 Text(
-                  '4h 25min',
-                  style: TextStyle(
+                  _durationText(focusMinutes),
+                  style: const TextStyle(
                     color: _blue,
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
@@ -713,17 +980,36 @@ class _TodaySessions extends StatelessWidget {
       ),
     );
   }
+
+  static String _clockTime(DateTime value) =>
+      '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
 }
 
 class _ProductivitySummary extends StatelessWidget {
-  const _ProductivitySummary();
+  const _ProductivitySummary({
+    required this.focusMinutes,
+    required this.pomodoros,
+  });
+
+  final int focusMinutes;
+  final int pomodoros;
 
   @override
   Widget build(BuildContext context) {
-    const items = [
-      (Icons.schedule_rounded, 'Foco total', '4h 25min', '+1h 10m vs ontem'),
-      (Icons.track_changes_rounded, 'Pomodoros', '6', '+2 vs ontem'),
-      (Icons.trending_up_rounded, 'Taxa de foco', '92%', '+8% vs ontem'),
+    final items = [
+      (
+        Icons.schedule_rounded,
+        'Foco total',
+        _durationText(focusMinutes),
+        'Hoje',
+      ),
+      (Icons.track_changes_rounded, 'Pomodoros', pomodoros.toString(), 'Hoje'),
+      (
+        Icons.trending_up_rounded,
+        'Taxa de foco',
+        pomodoros == 0 ? '0%' : '100%',
+        'Ciclos concluídos',
+      ),
     ];
     return _Panel(
       child: Column(
@@ -804,6 +1090,9 @@ class _ProductivitySummary extends StatelessWidget {
   }
 }
 
+String _durationText(int minutes) =>
+    '${minutes ~/ 60}h ${(minutes % 60).toString().padLeft(2, '0')}min';
+
 class _ProductivityCard extends StatelessWidget {
   const _ProductivityCard({
     required this.icon,
@@ -865,54 +1154,34 @@ class _ProductivityCard extends StatelessWidget {
 }
 
 class _PomodoroNavigation extends StatelessWidget {
-  const _PomodoroNavigation();
+  const _PomodoroNavigation({required this.onSubjectsChanged});
+
+  final Future<void> Function() onSubjectsChanged;
 
   @override
   Widget build(BuildContext context) {
-    return NavigationBarTheme(
-      data: NavigationBarThemeData(
-        height: 70,
-        backgroundColor: Colors.white,
-        indicatorColor: const Color(0xFFE5EFFF),
-        labelTextStyle: WidgetStateProperty.resolveWith(
-          (states) => TextStyle(
-            color: states.contains(WidgetState.selected) ? _blue : _muted,
-            fontSize: 10,
-            fontWeight: states.contains(WidgetState.selected)
-                ? FontWeight.w700
-                : FontWeight.w500,
-          ),
-        ),
-      ),
-      child: NavigationBar(
-        selectedIndex: 1,
-        onDestinationSelected: (index) {
-          if (index == 0 && Navigator.canPop(context)) Navigator.pop(context);
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            label: 'Dashboard',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.schedule_rounded),
-            selectedIcon: Icon(Icons.schedule_rounded),
-            label: 'Pomodoro',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.calendar_month_outlined),
-            label: 'Sessões',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.menu_book_outlined),
-            label: 'Matérias',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.bar_chart_rounded),
-            label: 'Relatórios',
-          ),
-        ],
-      ),
+    return AppBottomNavigation(
+      selectedIndex: 1,
+      onDestinationSelected: (index) async {
+        if (index == 0 && Navigator.canPop(context)) Navigator.pop(context);
+        if (index == 2) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const SessoesScreen()),
+          );
+        } else if (index == 3) {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const MateriasScreen()),
+          );
+          await onSubjectsChanged();
+        } else if (index == 4) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const PerfilScreen()),
+          );
+        }
+      },
     );
   }
 }

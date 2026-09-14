@@ -27,6 +27,7 @@ migrate_working_dir/
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
+.dart_appdata/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
@@ -55,6 +56,7 @@ app.*.map.json
 
 # Local configuration
 local.properties
+config/supabase.local.json
 
 # Signing keys
 *.jks

@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'dashboard_screen.dart';
+import '../services/auth_service.dart';
+import '../widgets/app_logo.dart';
+import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -10,10 +14,70 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  static const _rememberEmailKey = 'remember_login_email';
+  final _preferences = SharedPreferencesAsync();
   bool ocultarSenha = true;
   bool lembrarSenha = false;
+  bool _loading = false;
   final emailController = TextEditingController();
   final senhaController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreRememberedEmail();
+  }
+
+  Future<void> _restoreRememberedEmail() async {
+    final email = await _preferences.getString(_rememberEmailKey);
+    if (!mounted || email == null || email.isEmpty) return;
+    emailController.text = email;
+    setState(() => lembrarSenha = true);
+  }
+
+  @override
+  void dispose() {
+    emailController.dispose();
+    senhaController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _signIn() async {
+    final email = emailController.text.trim();
+    final senha = senhaController.text;
+    String? error;
+    if (email.isEmpty) {
+      error = 'Informe seu e-mail';
+    } else if (!email.contains('@') || !email.contains('.')) {
+      error = 'E-mail inválido';
+    } else if (senha.isEmpty) {
+      error = 'Informe sua senha';
+    } else if (senha.length < 8) {
+      error = 'A senha deve conter no mínimo 8 caracteres';
+    }
+    if (error != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      await AuthService.instance.signIn(email: email, password: senha);
+      if (lembrarSenha) {
+        await _preferences.setString(_rememberEmailKey, email);
+      } else {
+        await _preferences.remove(_rememberEmailKey);
+      }
+    } on AuthException catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -29,31 +93,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Center(
-                      child: Container(
-                        width: 90,
-                        height: 90,
-                        decoration: BoxDecoration(
-                          color: Color(0xFFEAF2FF),
-                          borderRadius: BorderRadius.circular(24),
-                        ),
-                        child: Icon(
-                          Icons.timer_outlined,
-                          size: 50,
-                          color: Color(0xFF2563EB),
-                        ),
-                      ),
-                    ),
-                    Center(
-                      child: Text(
-                        'Estuda+',
-                        style: TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF2563EB),
-                        ),
-                      ),
-                    ),
+                    const Center(child: AppLogo(size: 150)),
                     SizedBox(height: 20),
                     Center(
                       child: Text(
@@ -161,52 +201,39 @@ class _LoginScreenState extends State<LoginScreen> {
                             borderRadius: BorderRadius.circular(14),
                           ),
                         ),
-                        onPressed: () {
-                          String email = emailController.text.trim();
-                          String senha = senhaController.text;
-                          if (email.isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('informe seu e-mail'),
-                              ),
-                            );
-                          } else if (!email.contains('@') ||
-                              !email.contains('.')) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('E-mail inválido')),
-                            );
-                          } else if (senha.isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('informe sua senha'),
-                              ),
-                            );
-                          } else if (senha.length < 8) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'A senha deve conter no minimo 8 caracteres',
+                        onPressed: _loading ? null : _signIn,
+                        child: _loading
+                            ? const SizedBox.square(
+                                dimension: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                'Entrar',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
-                            );
-                          } else {
-                            Navigator.pushReplacement(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => const DashboardScreen(),
-                              ),
-                            );
-                          }
-                        },
-                        // Ação ao pressionar o botão de login
-                        child: const Text(
-                          'Entrar',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
                       ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text('Ainda não tem uma conta?'),
+                        TextButton(
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const SignupScreen(),
+                            ),
+                          ),
+                          child: const Text('Cadastre-se'),
+                        ),
+                      ],
                     ),
                   ],
                 ),
