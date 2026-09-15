@@ -30,16 +30,18 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
   List<SubjectRecord> _subjectRecords = [];
   List<StudySessionRecord> _todaySessions = [];
   bool _loadingSubjects = true;
-  late int _handledCompletions;
   final _completionNotes = TextEditingController();
-  CompletedStudySession? _pendingCompletion;
+  DateTime? _displayedCompletion;
   bool _showCompletionNotes = false;
   bool _savingCompletion = false;
 
   @override
   void initState() {
     super.initState();
-    _handledCompletions = _controller.completedSessions.length;
+    final pending = _controller.pendingCompletion;
+    _displayedCompletion = pending?.finishedAt;
+    _completionNotes.text = _controller.pendingSummaryDraft;
+    _showCompletionNotes = _controller.pendingNotesRequested;
     _controller.addListener(_refresh);
     _loadSubjects();
   }
@@ -53,11 +55,13 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
 
   void _refresh() {
     if (!mounted) return;
-    if (_controller.completedSessions.length > _handledCompletions) {
-      _handledCompletions = _controller.completedSessions.length;
-      _pendingCompletion = _controller.completedSessions.first;
+    final pending = _controller.pendingCompletion;
+    if (pending != null && pending.finishedAt != _displayedCompletion) {
+      _displayedCompletion = pending.finishedAt;
       _showCompletionNotes = false;
       _completionNotes.clear();
+    } else if (pending == null) {
+      _displayedCompletion = null;
     }
     setState(() {});
   }
@@ -79,6 +83,13 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
           _controller.subject.isNotEmpty &&
           !names.contains(_controller.subject)) {
         _controller.changeSubject('');
+      } else if (!_controller.subjectLocked &&
+          _controller.subject.isNotEmpty &&
+          _controller.subjectId == null) {
+        final selected = records.firstWhere(
+          (item) => item.name == _controller.subject,
+        );
+        _controller.changeSubject(selected.name, id: selected.id);
       }
       setState(() {
         _subjects = names;
@@ -94,24 +105,20 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
   }
 
   Future<void> _persistCompletion({required String summary}) async {
-    final session = _pendingCompletion;
+    final session = _controller.pendingCompletion;
     if (session == null || _savingCompletion) return;
-    final subject = _subjectRecords
-        .where((item) => item.name == session.subject)
-        .firstOrNull;
-    if (subject == null) return;
     setState(() => _savingCompletion = true);
     try {
       await DatabaseService.instance.createPomodoroSession(
-        subjectId: subject.id,
+        subjectId: session.subjectId,
         finishedAt: session.finishedAt,
         durationMinutes: session.minutes,
         summary: summary,
       );
       await _loadSubjects();
       if (mounted) {
+        _controller.resolvePendingCompletion();
         setState(() {
-          _pendingCompletion = null;
           _showCompletionNotes = false;
           _savingCompletion = false;
           _completionNotes.clear();
@@ -129,6 +136,41 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
         );
       }
     }
+  }
+
+  Future<void> _cancelPendingCompletion() async {
+    if (_savingCompletion || _controller.pendingCompletion == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancelar registro do ciclo?'),
+        content: const Text(
+          'Este Pomodoro concluído não será salvo nas sessões nem nas estatísticas.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Voltar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Cancelar registro'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    _controller.resolvePendingCompletion();
+    setState(() {
+      _showCompletionNotes = false;
+      _completionNotes.clear();
+    });
+  }
+
+  void _requestCompletionNotes() {
+    _controller.requestPendingNotes();
+    setState(() => _showCompletionNotes = true);
   }
 
   void _setAdjustingDuration(bool value) {
@@ -200,7 +242,17 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
   }
 
   void _startPomodoro() {
-    if (_controller.subject.trim().isEmpty) {
+    if (_controller.pendingCompletion != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Finalize ou cancele o registro do Pomodoro concluído antes de iniciar outro ciclo.',
+          ),
+        ),
+      );
+      return;
+    }
+    if (_controller.subject.trim().isEmpty || _controller.subjectId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Cadastre e selecione uma matéria antes de iniciar.'),
@@ -271,7 +323,10 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
                         ? null
                         : (value) {
                             if (value != null) {
-                              _controller.changeSubject(value);
+                              final selected = _subjectRecords.firstWhere(
+                                (item) => item.name == value,
+                              );
+                              _controller.changeSubject(value, id: selected.id);
                             }
                           },
                     clock: _clock,
@@ -290,16 +345,18 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
                     const SizedBox(height: 12),
                     _CompletionBanner(message: _controller.completedMessage!),
                   ],
-                  if (_pendingCompletion != null) ...[
+                  if (_controller.pendingCompletion != null) ...[
                     const SizedBox(height: 12),
                     _CompletionNotesCard(
                       controller: _completionNotes,
                       showField: _showCompletionNotes,
                       saving: _savingCompletion,
-                      onYes: () => setState(() => _showCompletionNotes = true),
+                      onYes: _requestCompletionNotes,
                       onNo: () => _persistCompletion(summary: ''),
                       onSave: () =>
                           _persistCompletion(summary: _completionNotes.text),
+                      onChanged: _controller.updatePendingSummaryDraft,
+                      onCancel: _cancelPendingCompletion,
                     ),
                   ],
                   const SizedBox(height: 18),
@@ -778,6 +835,8 @@ class _CompletionNotesCard extends StatelessWidget {
     required this.onYes,
     required this.onNo,
     required this.onSave,
+    required this.onChanged,
+    required this.onCancel,
   });
 
   final TextEditingController controller;
@@ -786,6 +845,8 @@ class _CompletionNotesCard extends StatelessWidget {
   final VoidCallback onYes;
   final VoidCallback onNo;
   final VoidCallback onSave;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onCancel;
 
   @override
   Widget build(BuildContext context) => _Panel(
@@ -812,6 +873,7 @@ class _CompletionNotesCard extends StatelessWidget {
           const SizedBox(height: 14),
           TextField(
             controller: controller,
+            onChanged: onChanged,
             maxLength: 1000,
             maxLines: 5,
             autofocus: true,
@@ -834,6 +896,11 @@ class _CompletionNotesCard extends StatelessWidget {
                 : const Icon(Icons.save_outlined),
             label: Text(saving ? 'Salvando...' : 'Salvar anotação'),
           ),
+          TextButton(
+            onPressed: saving ? null : onCancel,
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Cancelar registro do ciclo'),
+          ),
         ] else ...[
           const SizedBox(height: 14),
           Row(
@@ -852,6 +919,12 @@ class _CompletionNotesCard extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 4),
+          TextButton(
+            onPressed: saving ? null : onCancel,
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Cancelar registro do ciclo'),
           ),
         ],
       ],

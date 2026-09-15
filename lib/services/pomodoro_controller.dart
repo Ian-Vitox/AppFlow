@@ -17,18 +17,21 @@ class PomodoroController extends ChangeNotifier {
   bool durationLocked = false;
   String mode = 'Pomodoro';
   String subject = '';
+  String? subjectId;
   String? completedMessage;
-  final List<CompletedStudySession> completedSessions = [];
-
-  int get focusMinutesToday =>
-      completedSessions.fold(0, (total, session) => total + session.minutes);
-
-  int get pomodorosToday => completedSessions.length;
+  CompletedStudySession? pendingCompletion;
+  String pendingSummaryDraft = '';
+  bool pendingNotesRequested = false;
 
   bool get subjectLocked => durationLocked && remainingSeconds > 0;
 
   void start() {
-    if (running || remainingSeconds == 0) return;
+    if (running ||
+        remainingSeconds == 0 ||
+        pendingCompletion != null ||
+        subjectId == null) {
+      return;
+    }
     running = true;
     completedMessage = null;
     durationLocked = true;
@@ -82,9 +85,45 @@ class PomodoroController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void changeSubject(String value) {
+  void changeSubject(String value, {String? id}) {
     if (subjectLocked) return;
     subject = value;
+    subjectId = id;
+    notifyListeners();
+  }
+
+  void updatePendingSummaryDraft(String value) {
+    if (pendingCompletion == null) return;
+    pendingSummaryDraft = value;
+  }
+
+  void requestPendingNotes() {
+    if (pendingCompletion == null) return;
+    pendingNotesRequested = true;
+  }
+
+  void resolvePendingCompletion() {
+    pendingCompletion = null;
+    pendingSummaryDraft = '';
+    pendingNotesRequested = false;
+    notifyListeners();
+  }
+
+  Future<void> clearForLogout() async {
+    _ticker?.cancel();
+    _endAt = null;
+    running = false;
+    durationLocked = false;
+    sessionMinutes = 25;
+    remainingSeconds = 25 * 60;
+    mode = 'Pomodoro';
+    subject = '';
+    subjectId = null;
+    completedMessage = null;
+    pendingCompletion = null;
+    pendingSummaryDraft = '';
+    pendingNotesRequested = false;
+    await NotificationService.instance.cancelTimerEnd();
     notifyListeners();
   }
 
@@ -109,14 +148,14 @@ class PomodoroController extends ChangeNotifier {
           ? 'Ciclo de Pomodoro concluído!'
           : '$mode concluída!';
       if (mode == 'Pomodoro') {
-        completedSessions.insert(
-          0,
-          CompletedStudySession(
-            subject: subject,
-            minutes: sessionMinutes,
-            finishedAt: DateTime.now(),
-          ),
+        pendingCompletion = CompletedStudySession(
+          subjectId: subjectId!,
+          subject: subject,
+          minutes: sessionMinutes,
+          finishedAt: DateTime.now(),
         );
+        pendingSummaryDraft = '';
+        pendingNotesRequested = false;
       }
     }
   }
@@ -124,11 +163,13 @@ class PomodoroController extends ChangeNotifier {
 
 class CompletedStudySession {
   const CompletedStudySession({
+    required this.subjectId,
     required this.subject,
     required this.minutes,
     required this.finishedAt,
   });
 
+  final String subjectId;
   final String subject;
   final int minutes;
   final DateTime finishedAt;

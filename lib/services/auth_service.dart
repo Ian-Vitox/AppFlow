@@ -1,5 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'pomodoro_controller.dart';
+
 class AuthService {
   AuthService._();
 
@@ -57,7 +59,10 @@ class AuthService {
     await _client.auth.updateUser(UserAttributes(password: newPassword));
   }
 
-  Future<void> signOut() => _client.auth.signOut();
+  Future<void> signOut() async {
+    await PomodoroController.instance.clearForLogout();
+    await _client.auth.signOut();
+  }
 }
 
 class CurrentPasswordInvalidException implements Exception {
